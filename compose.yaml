@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tradient
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: tradient
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U tradient -d tradient"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build: { context: ., target: runtime }
+    command: [pnpm, migrate]
+    environment:
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://tradient:local-dev-only@db:5432/tradient}
+    depends_on:
+      db: { condition: service_healthy }
+  api:
+    build: { context: ., target: runtime }
+    command: [pnpm, api]
+    restart: unless-stopped
+    environment:
+      <<: &paper
+        DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://tradient:local-dev-only@db:5432/tradient}
+        ALPACA_PAPER_TRADE: ${ALPACA_PAPER_TRADE:-true}
+        ALPACA_LIVE_TRADE: ${ALPACA_LIVE_TRADE:-false}
+        ALPACA_TRADING_BASE_URL: ${ALPACA_TRADING_BASE_URL:-https://paper-api.alpaca.markets}
+        ALPACA_DATA_BASE_URL: ${ALPACA_DATA_BASE_URL:-https://data.alpaca.markets}
+        ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+        ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?Set a strong ADMIN_TOKEN}
+      AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-}
+      AI_DAILY_REQUESTS: ${AI_DAILY_REQUESTS:-20}
+      AI_DAILY_USD: ${AI_DAILY_USD:-2}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          'fetch("http://127.0.0.1:4000/health").then(r=>{if(!r.ok)process.exitCode=1}).catch(()=>process.exitCode=1)',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  worker:
+    build: { context: ., target: runtime }
+    command: [pnpm, worker]
+    restart: unless-stopped
+    stop_grace_period: 4m10s
+    environment:
+      <<: *paper
+      ALPACA_STREAMS: ${ALPACA_STREAMS:-true}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+  web:
+    build: { context: ., target: web }
+    restart: unless-stopped
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+volumes:
+  postgres:

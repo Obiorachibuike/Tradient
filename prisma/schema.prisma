@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Control {
+  id        Int      @id
+  stopped   Boolean  @default(true)
+  reason    String   @default("Not armed")
+  changedAt DateTime @updatedAt
+}
+
+model Bot {
+  id         String   @id @default(cuid())
+  symbol     String
+  assetClass String
+  timeframe  String
+  strategy   String
+  enabled    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  signals    Signal[]
+}
+
+model Signal {
+  id        String   @id @default(cuid())
+  botId     String
+  bot       Bot      @relation(fields: [botId], references: [id])
+  candle    DateTime
+  version   String
+  readings  Json
+  score     Int
+  decision  String
+  createdAt DateTime @default(now())
+  intent    Intent?
+
+  @@unique([botId, candle])
+}
+
+model Intent {
+  id             String   @id
+  symbol         String
+  assetClass     String
+  side           String
+  quantity       Decimal  @db.Decimal(30, 12)
+  limitPrice     Decimal  @db.Decimal(30, 12)
+  stop           Decimal? @db.Decimal(30, 12)
+  target         Decimal? @db.Decimal(30, 12)
+  status         String
+  brokerId       String?  @unique
+  signalId       String?  @unique
+  signal         Signal?  @relation(fields: [signalId], references: [id])
+  parentId       String?
+  parent         Intent?  @relation("IntentExits", fields: [parentId], references: [id])
+  exits          Intent[] @relation("IntentExits")
+  filledQuantity Decimal  @default(0) @db.Decimal(30, 12)
+  averageFill    Decimal? @db.Decimal(30, 12)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, side])
+  @@index([parentId])
+  @@index([symbol, createdAt])
+}
+
+model MarketBar {
+  symbol    String
+  source    String
+  timeframe String
+  time      DateTime
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+
+  @@id([symbol, source, timeframe, time])
+}
+
+model EquitySnapshot {
+  time        DateTime @id @default(now())
+  accountId   String
+  equity      Decimal  @db.Decimal(30, 12)
+  buyingPower Decimal  @db.Decimal(30, 12)
+
+  @@index([accountId, time])
+}
+
+model Heartbeat {
+  id   String   @id
+  time DateTime @updatedAt
+}
+
+model Audit {
+  id     String   @id @default(cuid())
+  event  String
+  detail Json
+  time   DateTime @default(now())
+
+  @@index([time])
+}
+
+model BacktestRun {
+  id        String   @id @default(cuid())
+  config    Json
+  result    Json
+  source    String
+  version   String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model MarketEvent {
+  symbol     String
+  source     String
+  kind       String
+  observedAt DateTime
+  payload    Json
+
+  @@id([symbol, source, kind])
+}
+
+model AIModel {
+  id                  String   @id @default(cuid())
+  provider            String
+  name                String
+  role                String
+  enabled             Boolean  @default(false)
+  secretCipher        String
+  maxTokens           Int
+  timeoutMs           Int
+  inputUsdPerMillion  Decimal  @db.Decimal(15, 6)
+  outputUsdPerMillion Decimal  @db.Decimal(15, 6)
+  updatedAt           DateTime @updatedAt
+
+  @@unique([provider, name])
+}
+
+model AIUsage {
+  id           String   @id @default(cuid())
+  provider     String
+  model        String
+  status       String
+  inputTokens  Int?
+  outputTokens Int?
+  estimatedUsd Decimal  @db.Decimal(18, 8)
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+}

@@ -1,0 +1,11 @@
+# Deployment
+
+Keep **four separate services**: Next.js, a long-lived Fastify process, a long-lived pg-boss worker, and PostgreSQL. The API and worker entrypoints share a Docker build target (`runtime`), while `web` builds Next.js. `compose.yaml` is a local deployment blueprint, not a managed production environment. Do not host the trading worker in a request-scoped serverless function.
+
+1. Provision a private PostgreSQL 16+ instance with encrypted connections, backups and restore drills. Start with an empty database dedicated to one paper account. Configure roles for migrations and runtime; the worker also needs pg-boss schema installation privileges initially.
+2. Build `runtime` and `web`. For `web`, set `--build-arg API_INTERNAL_URL=http://api:4000` to your private origin reachable from Next.js. The value is resolved at build time by Next rewrites; rebuild when it changes. Do not pass secrets as build args. Run `pnpm migrate` once before services roll forward.
+3. Run `pnpm api` on an internal interface, `pnpm worker` with restart policy and extended termination grace, and `pnpm start` for the web tier. Send traffic only to the web tier through HTTPS/WSS; ensure the edge supports WebSocket upgrade. Inject secrets from a server-side secret store. Keep direct broker access and database off the public network.
+4. Check `/health` and authenticated `/ready` on Fastify. Open the terminal, check the worker heartbeat and current broker data, and validate with paper-only credentials before arming. Set external alerts for stale worker heartbeats, failed restarts, dead-letter jobs and broker errors. The app itself exposes a heartbeat and recent audit events, not a hosted alerting service.
+5. During rollout, stop new entries and reconcile existing orders. Keep the same database through worker restarts. Do not assume a deploy or process kill cancels orders or protects existing positions. See [incident response](INCIDENT_RESPONSE.md).
+
+Deployment to a real hosting environment was not performed. A managed deployment needs an operator-provided PostgreSQL service, a persistent Node.js host, TLS configuration, secret injection, and external contract validation before enabling automation.
